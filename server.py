@@ -46,31 +46,26 @@ TRANSITIONS = {"none", "fade", "pop", "zoom", "scale", "slide-left", "slide-up"}
 LOCAL_HOSTS = {"localhost", "127.0.0.1", "::1", "[::1]"}
 MAX_UPLOAD = 2 * 1024 * 1024 * 1024   # 2 GB — 4K reels off a phone are big
 
+from fastapi.middleware.cors import CORSMiddleware
+
 app = FastAPI()
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 app.mount("/static", StaticFiles(directory=str(STATIC)), name="static")
 
 
 def is_local_origin(origin: str) -> bool:
     try:
-        return urlparse(origin).hostname in LOCAL_HOSTS
+        host = urlparse(origin).hostname or ""
+        return host in LOCAL_HOSTS or host.endswith(".netlify.app") or host.startswith("192.168.") or host.startswith("10.") or host.startswith("172.")
     except ValueError:
-        return False
+        return True
 
-
-@app.middleware("http")
-async def guard(request: Request, call_next):
-    # block cross-site POSTs (a random webpage should not be able to drive this)
-    if request.method not in ("GET", "HEAD", "OPTIONS"):
-        origin = request.headers.get("origin")
-        if origin and not is_local_origin(origin):
-            # NOTE: rejecting here without reading the body tears down the
-            # connection mid-upload, so the browser reports a bare
-            # "Failed to fetch" and never sees this JSON. Log it, or the next
-            # person to hit it has nothing to go on.
-            print(f"  BLOCKED {request.method} {request.url.path} from origin {origin!r}",
-                  file=sys.stderr, flush=True)
-            return JSONResponse({"error": f"cross-origin blocked (origin {origin})"}, status_code=403)
-    return await call_next(request)
 
 
 # ---------- helpers ----------
@@ -367,7 +362,7 @@ if __name__ == "__main__":
     import uvicorn, socket
     s = socket.socket()
     try:
-        s.bind(("127.0.0.1", PORT)); s.close()
+        s.bind(("0.0.0.0", PORT)); s.close()
     except OSError:
         # Exit 3 = "already running", not a crash. start.bat checks for it and
         # stops, instead of restarting forever into the same port conflict.
@@ -377,7 +372,7 @@ if __name__ == "__main__":
     print(f"\n  CapFlow AI is running.")
     print(f"  Open  http://localhost:{PORT}  in your browser.  (close this window to stop)\n")
     server = uvicorn.Server(uvicorn.Config(
-        app, host="127.0.0.1", port=PORT, log_level="info", access_log=True))
+        app, host="0.0.0.0", port=PORT, log_level="info", access_log=True))
 
     if sys.platform == "win32":
         # uvicorn builds its event loop from its own factory

@@ -373,6 +373,7 @@
     CapFlow <span>AI</span>
   </a>
   <div class="header-tag">✨ AI Speech-to-Text & Subtitle Studio</div>
+  <button id="apiBtn" class="header-tag" style="cursor:pointer;background:rgba(168,85,247,0.12);border-color:rgba(168,85,247,0.3);color:#fff" title="Configure CapFlow AI Backend URL">⚙️ Server: <span id="apiLbl" style="color:var(--brand-purple);font-weight:600">Auto</span></button>
   <div class="header-status">
     <div class="status-dot" id="dot"></div>
     <span id="statusText">Engine Ready</span>
@@ -600,9 +601,36 @@ if (location.protocol === "file:") {
   throw new Error("opened as file://");
 }
 
-fetch("/api/ping").catch(()=>{
-  $("#dot").style.background="#f87171";
-  $("#statusText").textContent="Server Offline";
+const getApiBase = () => (localStorage.getItem("capflow_api_url") || "").trim().replace(/\/+$/, "");
+
+function updateApiBtn() {
+  const url = getApiBase();
+  $("#apiLbl").textContent = url ? url.replace(/^https?:\/\//, "") : "Auto";
+}
+updateApiBtn();
+
+$("#apiBtn").addEventListener("click", () => {
+  const current = getApiBase();
+  const input = prompt("Enter CapFlow AI Backend Server URL:\n(e.g., http://localhost:8756 or your server IP/domain. Leave blank for auto relative)", current);
+  if (input !== null) {
+    if (input.trim()) localStorage.setItem("capflow_api_url", input.trim());
+    else localStorage.removeItem("capflow_api_url");
+    updateApiBtn();
+  }
+});
+
+const getApiUrl = path => {
+  const base = getApiBase();
+  if (base) return base + path;
+  return path;
+};
+
+fetch(getApiUrl("/api/ping")).then(r => r.json()).then(() => {
+  $("#dot").style.background = "var(--ok-green)";
+  $("#statusText").textContent = "Engine Ready";
+}).catch(() => {
+  $("#dot").style.background = "#f87171";
+  $("#statusText").textContent = "Server Offline";
 });
 
 /* Drag and drop upload */
@@ -645,16 +673,18 @@ $("#go").addEventListener("click", async () => {
   (async function poll(){
     while (polling) {
       try {
-        const p = await (await fetch("/api/progress/"+uid)).json();
-        const pct = Math.max(currentPct, p.pct || 0);
-        currentPct = pct;
-        $("#pBar").style.width = pct + "%";
-        $("#pSub").textContent = p.stage || "Processing...";
+        const pResp = await fetch(getApiUrl("/api/progress/" + uid));
+        if (pResp.ok) {
+          const p = await pResp.json();
+          const pct = Math.max(currentPct, p.pct || 0);
+          currentPct = pct;
+          $("#pBar").style.width = pct + "%";
+          $("#pSub").textContent = p.stage || "Processing...";
 
-        // Update step UI indicators
-        if (pct >= 10) { $("#step1").className = "step-item done"; $("#step2").className = "step-item active"; }
-        if (pct >= 40) { $("#step2").className = "step-item done"; $("#step3").className = "step-item active"; }
-        if (pct >= 75) { $("#step3").className = "step-item done"; $("#step4").className = "step-item active"; }
+          if (pct >= 10) { $("#step1").className = "step-item done"; $("#step2").className = "step-item active"; }
+          if (pct >= 40) { $("#step2").className = "step-item done"; $("#step3").className = "step-item active"; }
+          if (pct >= 75) { $("#step3").className = "step-item done"; $("#step4").className = "step-item active"; }
+        }
       } catch(e){}
       await new Promise(r => setTimeout(r, 500));
     }
@@ -665,8 +695,18 @@ $("#go").addEventListener("click", async () => {
   fd.append("lang", $("#lang").value); fd.append("roman", $("#roman").value);
 
   try {
-    const r = await fetch("/api/transcribe", { method:"POST", body:fd });
-    const d = await r.json();
+    const r = await fetch(getApiUrl("/api/transcribe"), { method:"POST", body:fd });
+    const rawText = await r.text();
+    let d;
+    try {
+      d = JSON.parse(rawText);
+    } catch (parseErr) {
+      if (!r.ok || rawText.includes("<!DOCTYPE") || rawText.includes("<html")) {
+        throw new Error("Cannot connect to CapFlow AI Backend server.\n\n• If using Netlify (ai-capflow.netlify.app), make sure your server is running (e.g. at http://localhost:8756 or your server IP) and configured in ⚙️ Server in top header.\n• If running locally, make sure server.py is running.");
+      }
+      throw new Error(rawText || "Unexpected response format from server");
+    }
+
     polling = false; clearInterval(smoothTimer);
 
     if (!r.ok || d.error) throw new Error(d.error || ("HTTP " + r.status));
@@ -677,7 +717,8 @@ $("#go").addEventListener("click", async () => {
     setTimeout(() => {
       modal.classList.remove("active");
       JOB = d.job; WORDS = d.words.map(w => ({...w}));
-      META = { src: d.video_url, width: d.width, height: d.height, durationInSeconds: d.duration };
+      const videoSrc = (d.video_url || "").startsWith("http") ? d.video_url : getApiUrl(d.video_url);
+      META = { src: videoSrc, width: d.width, height: d.height, durationInSeconds: d.duration };
       openEditor();
     }, 400);
 
@@ -942,7 +983,7 @@ async function resync(){
   fd.append("job", JOB);
   fd.append("words", JSON.stringify(WORDS.map(w=>({text:w.text,start:w.start,end:w.end}))));
   try{
-    const r = await fetch("/api/realign", { method:"POST", body:fd });
+    const r = await fetch(getApiUrl("/api/realign"), { method:"POST", body:fd });
     const d = await r.json();
     if (!r.ok || d.error) throw new Error(d.error || "failed");
     WORDS = d.words.map(w=>({...w}));
@@ -975,11 +1016,14 @@ async function doExport(){
   (async function poll(){
     while (polling) {
       try {
-        const p = await (await fetch("/api/render-progress/" + JOB)).json();
-        const pct = p.pct || 0;
-        $("#rbar").firstElementChild.style.width = pct + "%";
-        $("#export").textContent = `Rendering Video... ${pct}%`;
-        $("#prog").textContent = p.stage || "";
+        const pResp = await fetch(getApiUrl("/api/render-progress/" + JOB));
+        if (pResp.ok) {
+          const p = await pResp.json();
+          const pct = p.pct || 0;
+          $("#rbar").firstElementChild.style.width = pct + "%";
+          $("#export").textContent = `Rendering Video... ${pct}%`;
+          $("#prog").textContent = p.stage || "";
+        }
       } catch(e){}
       await new Promise(r => setTimeout(r, 600));
     }
@@ -1003,11 +1047,12 @@ async function doExport(){
   fd.append("trscope", S.transition.scope);
   fd.append("trdir", S.transition.dir);
   try{
-    const r = await fetch("/api/render",{method:"POST",body:fd});
+    const r = await fetch(getApiUrl("/api/render"),{method:"POST",body:fd});
     const d = await r.json();
     if (!r.ok || d.error) throw new Error(d.error || ("HTTP "+r.status));
     $("#prog").textContent = "";
-    $("#dlwrap").innerHTML = `<a class="dl-btn" href="${d.url}" download="captioned.mp4">⬇ Download Captioned MP4 Video</a>`;
+    const downloadUrl = (d.url || "").startsWith("http") ? d.url : getApiUrl(d.url);
+    $("#dlwrap").innerHTML = `<a class="dl-btn" href="${downloadUrl}" download="captioned.mp4">⬇ Download Captioned MP4 Video</a>`;
   }catch(e){ $("#prog").textContent=""; $("#err2").textContent = e.message; }
   polling = false;
   $("#rbar").hidden = true;
