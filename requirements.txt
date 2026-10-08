@@ -1,0 +1,6 @@
+fastapi==0.141.1
+uvicorn==0.52.4
+python-multipart==0.0.32
+stable-ts==2.19.1
+faster-whisper==1.2.1
+indic-transliteration==2.3.82

@@ -1,0 +1,768 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Caption Studio</title>
+<style>
+  :root{
+    color-scheme: dark;
+    --bg:#0c0e12; --panel:#14171d; --panel2:#1b1f27; --line:#282d37;
+    --ink:#eef0f5; --dim:#8b93a5; --accent:#ff5c39; --ok:#3ecf8e;
+  }
+  *{ box-sizing:border-box; margin:0; padding:0; }
+  html,body{ height:100%; }
+  body{ background:var(--bg); color:var(--ink); font:13.5px/1.5 -apple-system,"Segoe UI",Roboto,system-ui,sans-serif; }
+  /* form controls don't inherit colour reliably — force it everywhere */
+  button,input,select,textarea{ font:inherit; color:var(--ink); background-color:var(--bg); }
+  button{ cursor:pointer; }
+  select option{ background:#1b1f27; color:var(--ink); }
+  input::placeholder,textarea::placeholder{ color:var(--dim); }
+  ::-webkit-scrollbar{ width:9px; height:9px; } ::-webkit-scrollbar-thumb{ background:#2c313c; border-radius:6px; }
+
+  header{ height:50px; border-bottom:1px solid var(--line); display:flex; align-items:center; gap:12px; padding:0 16px; background:var(--panel); }
+  header .logo{ font-weight:800; } header .logo b{ color:var(--accent); }
+  header .tag{ color:var(--dim); font-size:11.5px; }
+  header .status{ margin-left:auto; font-size:11.5px; color:var(--dim); display:flex; align-items:center; gap:6px; }
+  header .dot{ width:7px; height:7px; border-radius:50%; background:var(--ok); }
+
+  main{ display:grid; grid-template-columns:1fr 400px; height:calc(100% - 50px); }
+  /* before a clip is loaded the sidebar is hidden, but the column it lives in
+     still took 400px — which pushed the upload box off-centre. */
+  main:has(aside[hidden]){ grid-template-columns:1fr; }
+  @media(max-width:1080px){ main{ grid-template-columns:1fr; height:auto; } }
+
+  .stage{ display:flex; align-items:center; justify-content:center; padding:24px; overflow:auto; background:radial-gradient(60% 60% at 50% 40%, #12151b 0%, #0a0c10 100%); }
+  .upload{ width:100%; max-width:540px; display:flex; flex-direction:column; gap:14px; }
+  .drop{ border:1.5px dashed var(--line); border-radius:14px; padding:52px 24px; text-align:center; background:var(--panel); transition:.15s; }
+  .drop.hot,.drop:hover{ border-color:var(--accent); background:var(--panel2); }
+  .drop .big{ font-size:15.5px; font-weight:600; }
+  .drop .sub{ color:var(--dim); font-size:12.5px; margin-top:5px; }
+  .drop input{ display:none; }
+  label.fld{ font-size:11.5px; color:var(--dim); display:block; margin-bottom:6px; }
+  textarea{ width:100%; min-height:88px; background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:11px; resize:vertical; }
+  .btn{ background:var(--accent); color:#1a0d08; border:0; border-radius:10px; padding:12px; font-weight:800; width:100%; }
+  .btn:disabled{ opacity:.45; cursor:default; }
+  .err{ color:#ff7a7a; font-size:11.5px; white-space:pre-wrap; max-height:130px; overflow:auto; }
+
+  #playerWrap{ width:min(48vh,430px); aspect-ratio:9/16; background:#000; border-radius:14px; overflow:hidden; box-shadow:0 20px 70px #000b, 0 0 0 1px #ffffff08; }
+  #player{ width:100%; height:100%; }
+
+  aside{ border-left:1px solid var(--line); background:var(--panel); display:flex; flex-direction:column; min-height:0; }
+  aside[hidden]{ display:none; }   /* display:flex above would otherwise beat the UA [hidden] rule */
+  @media(max-width:1080px){ aside{ border-left:0; border-top:1px solid var(--line); height:78vh; } }
+
+  /* ---- tabs ---- */
+  .tabs{ display:flex; gap:4px; padding:9px 10px; border-bottom:1px solid var(--line); flex:0 0 auto; }
+  .tabs button{ flex:1; background:transparent; border:0; color:var(--dim); padding:8px 4px; border-radius:8px; font-size:12.5px; font-weight:600; }
+  .tabs button.on{ background:var(--panel2); color:var(--ink); box-shadow:inset 0 0 0 1px var(--line); }
+  .pane{ flex:1 1 auto; overflow-y:auto; min-height:0; }
+  .pane[hidden]{ display:none; }
+
+  .sec{ padding:14px 15px; border-bottom:1px solid var(--line); }
+  .sec h3{ font-size:10.5px; letter-spacing:.15em; text-transform:uppercase; color:var(--dim); margin-bottom:10px; display:flex; justify-content:space-between; align-items:center; gap:8px; white-space:nowrap; }
+  .sec h3 button{ background:none; border:0; color:var(--accent); font-size:10.5px; letter-spacing:.04em; }
+
+  .row{ display:flex; align-items:center; gap:9px; margin:9px 0; }
+  .row > label{ width:66px; flex:0 0 auto; color:var(--dim); font-size:11.5px; }
+  .row input[type=range]{ flex:1; accent-color:var(--accent); height:3px; }
+  .row .val{ width:40px; text-align:right; font-size:11px; color:var(--dim); }
+  .row select{ flex:1; background:var(--bg); border:1px solid var(--line); border-radius:7px; padding:7px; }
+  .row input[type=color]{ width:34px; height:26px; padding:2px; background:var(--bg); border:1px solid var(--line); border-radius:6px; }
+  .seg{ display:flex; gap:5px; flex:1; }
+  .seg button{ flex:1; background:var(--bg); border:1px solid var(--line); color:var(--dim); padding:7px 4px; border-radius:7px; font-size:11.5px; }
+  .seg button.on{ border-color:var(--accent); color:var(--ink); background:#ff5c3915; }
+
+  .words{ display:flex; flex-wrap:wrap; gap:4px; max-height:200px; overflow-y:auto; }
+  .words input{ background:var(--panel2); color:var(--ink); border:1px solid var(--line); border-radius:5px; padding:3px 7px; width:auto; min-width:28px; field-sizing:content; font-size:12px; }
+  .words input:focus{ outline:none; border-color:var(--accent); }
+  .wtools{ margin-left:auto; display:flex; gap:9px; flex:0 0 auto; }
+  .wtools button{ white-space:nowrap; }
+  #rbar{ height:5px; background:var(--panel2); border-radius:3px; overflow:hidden; margin-top:9px; }
+  #rbar i{ display:block; height:100%; width:0; background:var(--accent); border-radius:3px; transition:width .25s ease; }
+  #bulkWrap{ margin-bottom:10px; }
+  #bulk{ width:100%; min-height:110px; background:var(--bg); border:1px solid var(--line); border-radius:8px; padding:10px; font-size:13px; line-height:1.6; resize:vertical; }
+  #bulk:focus{ outline:none; border-color:var(--accent); }
+  .bulkRow{ display:flex; gap:8px; align-items:center; margin-top:8px; }
+  .bulkRow .btn{ width:auto; flex:0 0 auto; }
+  .bulkRow button:not(.btn){ background:transparent; border:1px solid var(--line); color:var(--dim); border-radius:7px; padding:8px 12px; font-size:12px; }
+  .words .addw{ background:transparent; border:1px dashed var(--line); color:var(--dim); border-radius:5px; padding:3px 9px; font-size:11.5px; }
+  .words .addw:hover{ border-color:var(--accent); color:var(--accent); }
+
+  /* ---- template gallery ---- */
+  .tsearch{ padding:11px 12px 4px; position:sticky; top:0; background:var(--panel); z-index:2; }
+  .tsearch input{ width:100%; background:var(--bg); border:1px solid var(--line); border-radius:8px; padding:8px 10px; font-size:12.5px; }
+  .gallery{ padding:8px 12px 16px; display:flex; flex-direction:column; gap:10px; }
+  .tcard{ border:1px solid var(--line); border-radius:10px; background:var(--panel2); overflow:hidden; }
+  .tcard.on{ border-color:var(--ok); box-shadow:0 0 0 1px var(--ok); }
+  .thead{ display:flex; align-items:center; gap:7px; padding:8px 11px; font-size:12px; font-weight:700; }
+  .thead small{ color:var(--dim); font-weight:500; font-size:10.5px; }
+  .thead .tick{ margin-left:auto; color:var(--ok); font-size:13px; opacity:0; }
+  .tcard.on .tick{ opacity:1; }
+  .tprev{ background:#0a0c10; padding:20px 12px; min-height:96px; display:flex; align-items:center; justify-content:center; cursor:pointer; overflow:hidden; }
+  .tprev .pl{ max-width:100%; }
+  .tbody{ padding:10px 11px 12px; border-top:1px solid var(--line); }
+  .tbody .row{ margin:7px 0; }
+  .tbody .row > label{ width:58px; }
+  .swatch{ display:flex; align-items:center; gap:8px; flex:1; background:var(--bg); border:1px solid var(--line); border-radius:7px; padding:4px 8px; font-size:11.5px; color:var(--dim); }
+  .swatch input[type=color]{ width:22px; height:20px; border-radius:4px; border:0; padding:0; }
+
+  /* ---- transitions ---- */
+  .tnote{ font-size:12px; color:var(--dim); padding:0 15px 12px; }
+  .tnote b{ color:var(--ok); font-weight:600; }
+  .trs{ display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px; padding:0 15px 14px; }
+  .tr{ display:flex; flex-direction:column; align-items:center; gap:5px; }
+  .tr .ic{ width:100%; aspect-ratio:1; border-radius:9px; background:#1e2129; display:flex; align-items:center; justify-content:center; color:var(--accent); border:2px solid transparent; }
+  .tr.on .ic{ border-color:var(--accent); }
+  .tr span{ font-size:10.5px; color:var(--dim); text-align:center; line-height:1.25; }
+  .tr svg{ width:30px; height:30px; }
+
+  .foot{ flex:0 0 auto; border-top:1px solid var(--line); padding:12px 15px; background:var(--panel); }
+  .dl{ display:flex; align-items:center; justify-content:center; gap:8px; margin-top:9px; background:var(--ok); color:#04120b; font-weight:800; padding:11px; border-radius:10px; text-decoration:none; }
+  .hint{ color:var(--dim); font-size:11px; margin-top:7px; }
+  .prog{ font-size:11.5px; color:var(--dim); margin-top:7px; }
+</style>
+</head>
+<body>
+<header>
+  <div class="logo">Caption <b>Studio</b></div>
+  <div class="tag">local · premium captions · Hinglish</div>
+  <div class="status"><span class="dot" id="dot"></span><span id="statusText">ready</span></div>
+</header>
+
+<main>
+  <section class="stage" id="stage">
+    <div class="upload" id="upload">
+      <label class="drop" id="drop">
+        <input type="file" id="file" accept="video/*">
+        <div class="big">Drop a clip — or click to choose</div>
+        <div class="sub">MP4 / MOV · a reel, 15–60 seconds</div>
+      </label>
+      <div>
+        <label class="fld">Language</label>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <select id="lang" style="flex:1;min-width:190px;padding:9px">
+            <option value="hi-en" selected>Hinglish — Hindi bola, roman likha</option>
+            <option value="">Auto-detect</option>
+            <option value="hi">Hindi</option>
+            <option value="en">English</option>
+            <option value="gu">Gujarati</option>
+            <option value="ur">Urdu</option>
+            <option value="mr">Marathi</option>
+            <option value="pa">Punjabi</option>
+            <option value="bn">Bengali</option>
+            <option value="ta">Tamil</option>
+            <option value="te">Telugu</option>
+            <option value="kn">Kannada</option>
+            <option value="ml">Malayalam</option>
+            <option value="ne">Nepali</option>
+            <option value="sd">Sindhi</option>
+            <option value="as">Assamese</option>
+            <option value="or">Odia</option>
+            <option value="ks">Kashmiri</option>
+            <option value="ps">Pushto</option>
+            <option value="fa">Persian</option>
+            <option value="ar">Arabic</option>
+            <option value="ms">Malay</option>
+          </select>
+          <select id="roman" style="padding:9px">
+            <option value="auto" selected>Script: auto</option>
+            <option value="1">Script: Roman</option>
+            <option value="0">Script: Native</option>
+          </select>
+        </div>
+        <div class="hint">Roman = <b>ke beech mein</b> · Native = <b>के बीच में</b>. Hinglish hamesha roman aata hai.</div>
+      </div>
+      <div>
+        <label class="fld">Spoken script — <b>optional.</b> Paste it only when you want the captions word-perfect (~2s instead of a full transcribe).</label>
+        <textarea id="script" placeholder="Aaj hum is video mein ek simple caption workflow dekhenge…"></textarea>
+      </div>
+      <button class="btn" id="go">Transcribe</button>
+      <div class="err" id="err"></div>
+    </div>
+  </section>
+
+  <aside id="side" hidden>
+    <div class="tabs" id="tabs">
+      <button data-p="text" class="on">Text</button>
+      <button data-p="tpl">Templates</button>
+      <button data-p="tr">Transitions</button>
+    </div>
+
+    <!-- ================= TEXT ================= -->
+    <div class="pane" id="pane-text">
+      <div class="sec">
+        <h3>Layout</h3>
+        <div class="row"><label>Show</label>
+          <div class="seg" id="grp">
+            <button data-v="line" class="on">Line</button>
+            <button data-v="word">One word</button>
+          </div>
+        </div>
+        <div class="row"><label>Position</label>
+          <div class="seg" id="pos">
+            <button data-y="18">Top</button>
+            <button data-y="46" class="on">Center</button>
+            <button data-y="72">Bottom</button>
+          </div>
+        </div>
+        <div class="row"><label>Fine Y</label><input type="range" id="posy" min="10" max="88" value="46"><span class="val" id="posyV"></span></div>
+        <div class="row"><label>Per line</label><input type="range" id="maxchars" min="8" max="40" step="1" value="22"><span class="val" id="maxcharsV"></span></div>
+        <div class="hint">Center / a touch above is the Instagram-safe zone — the top progress bar and the bottom caption + buttons stay clear.</div>
+      </div>
+
+      <div class="sec">
+        <h3>Style <button id="savePreset">save preset</button></h3>
+        <div class="row"><label>Font</label><select id="font"></select></div>
+        <div class="row"><label>Size</label><input type="range" id="size" min="2.0" max="9" step="0.1" value="5"><span class="val" id="sizeV"></span></div>
+        <div class="row"><label>Text</label><input type="color" id="color" value="#ffffff">
+          <label style="width:auto;margin-left:4px">Accent</label><input type="color" id="accent" value="#ff5c39"></div>
+        <div class="row"><label>Outline</label><input type="range" id="outline" min="0" max="10" step="0.5" value="5"><span class="val" id="outlineV"></span></div>
+        <div class="row"><label>Caps</label>
+          <div class="seg" id="caps"><button data-v="false" class="on">Aa</button><button data-v="true">AA</button></div>
+        </div>
+      </div>
+
+      <div class="sec">
+        <h3>Words
+          <span class="wtools">
+            <button id="resync" title="Re-run alignment so the captions land back on the audio">↻ sync</button>
+            <button id="bulkBtn" title="Paste or edit the whole script at once">paste all</button>
+          </span>
+        </h3>
+        <div id="bulkWrap" hidden>
+          <textarea id="bulk" spellcheck="false" placeholder="Paste the corrected script here — one continuous line is fine."></textarea>
+          <div class="bulkRow">
+            <button id="bulkApply" class="btn" style="padding:8px">Replace all words</button>
+            <button id="bulkCancel">cancel</button>
+          </div>
+          <div class="hint">Timings are re-spread across the same stretch of video, weighted by word length. Word count can change.</div>
+        </div>
+        <div class="words" id="words"></div>
+        <div class="hint">Type to fix · <b>Enter</b> adds a word after · <b>Backspace</b> on an empty word deletes it · <b>← →</b> move between words</div>
+        <div class="hint" id="aiHint" hidden></div>
+      </div>
+    </div>
+
+    <!-- ================= TEMPLATES ================= -->
+    <div class="pane" id="pane-tpl" hidden>
+      <div class="tsearch"><input id="tsearch" placeholder="Find a template"></div>
+      <div class="gallery" id="gallery"></div>
+    </div>
+
+    <!-- ================= TRANSITIONS ================= -->
+    <div class="pane" id="pane-tr" hidden>
+      <div class="sec" style="border:0;padding-bottom:0">
+        <div class="seg" id="trscope">
+          <button data-v="line" class="on">Line</button>
+          <button data-v="word">Word</button>
+        </div>
+      </div>
+      <div class="tnote">Transitions will be <b>Applied</b> on <span id="trscopeLbl">Line</span></div>
+      <div class="trs" id="trs"></div>
+      <div class="sec">
+        <div class="row"><label>Direction</label>
+          <div class="seg" id="trdir"><button data-v="out" class="on">Out</button><button data-v="in">In</button></div>
+        </div>
+        <div class="hint">Line = the whole caption block animates in. Word = every word animates in on its own, staggered.</div>
+      </div>
+    </div>
+
+    <div class="foot">
+      <div class="row" style="margin:0 0 10px">
+        <label>Size</label>
+        <div class="seg" id="outh">
+          <button data-v="1080" class="on">1080p</button>
+          <button data-v="720">720p</button>
+        </div>
+      </div>
+      <div class="row" style="margin:0 0 12px">
+        <label>Quality</label>
+        <div class="seg" id="outq">
+          <button data-v="high" class="on">High</button>
+          <button data-v="balanced">Balanced</button>
+          <button data-v="small">Small file</button>
+        </div>
+      </div>
+      <button class="btn" id="export">Export MP4</button>
+      <div id="rbar" hidden><i></i></div>
+      <div class="prog" id="prog"></div>
+      <div class="err" id="err2"></div>
+      <div id="dlwrap"></div>
+    </div>
+  </aside>
+</main>
+
+<script src="/static/player.js"></script>
+<script>
+const $ = s => document.querySelector(s);
+const $$ = s => [...document.querySelectorAll(s)];
+let JOB=null, WORDS=[], META=null;
+
+if (location.protocol === "file:") {
+  // Opened by double-clicking index.html. The page can't talk to the server
+  // from a file:// origin — but if the server IS up, just send them there
+  // rather than making them read an error.
+  fetch("http://localhost:8756/api/ping", { mode:"no-cors" })
+    .then(() => { location.replace("http://localhost:8756"); })
+    .catch(() => {});
+  document.body.innerHTML =
+    `<div style="max-width:620px;margin:16vh auto;padding:0 24px;text-align:center">
+       <div style="font-size:44px;margin-bottom:14px">&#128681;</div>
+       <h1 style="font-size:21px;margin-bottom:10px">Open Caption Studio from the server, not the file</h1>
+       <p style="color:#8b93a5;line-height:1.75">
+         You opened <code>index.html</code> straight off the disk, so the page has no server to talk to
+         and nothing will work.
+       </p>
+       <p style="margin:22px 0">
+         <a href="http://localhost:8756" style="display:inline-block;background:#ff5c39;color:#1a0d08;
+            font-weight:800;padding:13px 26px;border-radius:10px;text-decoration:none">
+           Go to http://localhost:8756</a>
+       </p>
+       <p style="color:#8b93a5;font-size:12px;line-height:1.8">
+         If that page won't load, run <b>start.bat</b> first and leave the black window open.
+       </p>
+     </div>`;
+  throw new Error("opened as a file:// page");
+}
+
+fetch("/api/ping").catch(()=>{ $("#dot").style.background="#ff7a7a"; $("#statusText").textContent="server not responding"; });
+
+// ---- upload ----
+const drop = $("#drop");
+["dragover","dragenter"].forEach(e=>drop.addEventListener(e,ev=>{ev.preventDefault();drop.classList.add("hot");}));
+["dragleave","drop"].forEach(e=>drop.addEventListener(e,ev=>{ev.preventDefault();drop.classList.remove("hot");}));
+drop.addEventListener("drop",ev=>{ $("#file").files = ev.dataTransfer.files; pick(); });
+$("#file").addEventListener("change", pick);
+function pick(){ const f=$("#file").files[0]; if(f) drop.querySelector(".big").textContent = f.name; }
+
+const hex12 = () => Array.from(crypto.getRandomValues(new Uint8Array(6))).map(b=>b.toString(16).padStart(2,"0")).join("");
+
+$("#go").addEventListener("click", async () => {
+  const f = $("#file").files[0];
+  if (!f) return $("#err").textContent = "Choose a video first.";
+  if (!$("#script").value.trim() &&
+      !confirm("No script pasted.\n\nWith the script: exact words, clean Hinglish.\nWithout it: auto-transcribed & roughly romanised — you fix words after.\n\nContinue without a script?")) {
+    $("#script").focus(); return;
+  }
+  const uid = hex12();
+  $("#go").disabled = true; $("#err").textContent = "";
+
+  let polling = true;
+  (async function poll(){
+    while (polling) {
+      try {
+        const p = await (await fetch("/api/progress/"+uid)).json();
+        $("#go").textContent = `${/clean/i.test(p.stage||"") ? "Cleaning up" : "Transcribing"}… ${p.pct||0}%  ·  ${p.stage||""}`;
+      } catch(e){}
+      await new Promise(r=>setTimeout(r, 700));
+    }
+  })();
+
+  const fd = new FormData();
+  fd.append("video", f); fd.append("script", $("#script").value); fd.append("job", uid);
+  fd.append("lang", $("#lang").value); fd.append("roman", $("#roman").value);
+  try {
+    const r = await fetch("/api/transcribe", { method:"POST", body:fd });
+    const d = await r.json();
+    polling = false;
+    if (!r.ok || d.error) throw new Error(d.error || ("HTTP " + r.status));
+    JOB = d.job; WORDS = d.words.map(w => ({...w}));
+    META = { src: d.video_url, width: d.width, height: d.height, durationInSeconds: d.duration };
+    openEditor();
+  } catch (e) {
+    polling = false;
+    // "Failed to fetch" = the connection dropped, not a server error message.
+    // Almost always a stale tab pointing at a server that has since restarted.
+    // "Failed to fetch" = the connection dropped, not a server error message.
+    // Almost always the server not running, or a stale tab.
+    $("#err").textContent = /failed to fetch|load failed|networkerror/i.test(e.message)
+      ? `Lost the connection to Caption Studio.
+
+1. Is the black start.bat window still open?
+2. Hard-reload this page (Ctrl+Shift+R).
+3. The address bar must say http://localhost:8756 (not a file:// path)
+
+(${e.message})`
+      : e.message;
+    $("#go").disabled = false; $("#go").textContent = "Transcribe";
+  }
+});
+
+// ---- editor state ----
+const TD  = () => (window.CS && window.CS.TEMPLATE_DEFAULTS) || {};
+const TPL = () => (window.CS && window.CS.TPL) || {};
+const S = {
+  template: "kalakar", oneWord: false,
+  transition: { kind:"fade", scope:"line", dir:"out" },
+  style: { font:"Inter", fontSizePct:3.0, color:"#ffffff", accent:"#c8ff00",
+           outline:2, posYPct:46, uppercase:false, oneWord:false, maxCharsPerLine:26 },
+};
+
+function openEditor(){
+  $("#stage").innerHTML = `<div id="playerWrap"><div id="player"></div></div>`;
+  $("#side").hidden = false;
+
+  $("#font").innerHTML = ((window.CS && window.CS.FONTS) || ["Montserrat"]).map(f=>`<option>${f}</option>`).join("");
+
+  if (!restorePreset()) applyTemplateDefaults(S.template);   // first run: use the template's own look
+  buildTabs();
+  buildGallery();
+  buildTransitions();
+  bindControls();
+  buildWords();
+  syncVals();
+  CS.mount($("#player"), { ...META, words: WORDS, template: S.template, style: S.style, transition: S.transition });
+
+}
+
+function buildTabs(){
+  $("#tabs").addEventListener("click", e=>{
+    const b = e.target.closest("button"); if(!b) return;
+    [...$("#tabs").children].forEach(x=>x.classList.toggle("on", x===b));
+    ["text","tpl","tr"].forEach(p => $("#pane-"+p).hidden = (p !== b.dataset.p));
+  });
+}
+
+/* ================= template gallery ================= */
+// Cards render through CS.wordCss / CS.lineCss — the exact functions the video
+// uses — so a card is a true preview of the export.
+const PREVIEW = ["The quick", "brown", "fox"];
+
+function cardPreview(key){
+  const def = TPL()[key] || {};
+  const st = { color: def.color, accent: def.accent || def.color,
+               outline: def.outline ?? 4, uppercase: !!def.caps };
+  const ff    = CS.fontFamily(def.font);
+  const ffAct = def.act && def.act.font ? CS.fontFamily(def.act.font) : ff;
+
+  const wrap = document.createElement("div");
+  wrap.className = "pl";
+  Object.assign(wrap.style, CS.lineCss(def, st));
+  wrap.style.fontSize = Math.max(9, Math.min(21, 15 * ((def.size ?? 4.8) / 4.8))) + "px";
+
+  PREVIEW.forEach((txt, i) => {
+    const active = i === 1;
+    const sp = document.createElement("span");
+    const css = CS.wordCss(def, st, { active, passed: i === 0, line: i, ff, ffAct });
+    Object.assign(sp.style, css);
+    // wordCss already gives splash templates their own line at real size;
+    // the smaller emphasis scales are a transform in the video, so fake them here
+    const sc = active && def.act && def.act.scale;
+    if (sc && sc < 1.6) sp.style.transform = `scale(${sc})`;
+    sp.textContent = txt;
+    wrap.appendChild(sp);
+  });
+  return wrap;
+}
+
+function buildGallery(){
+  const g = $("#gallery"); g.innerHTML = "";
+  const q = ($("#tsearch").value || "").toLowerCase().trim();
+  (CS.TEMPLATES || []).forEach(k => {
+    const d = TD()[k] || {};
+    if (q && !((d.name||k) + " " + (d.hint||"")).toLowerCase().includes(q)) return;
+    const card = document.createElement("div");
+    card.className = "tcard" + (k === S.template ? " on" : "");
+    card.dataset.t = k;
+    card.innerHTML =
+      `<div class="thead"><span>${d.name||k}</span><small>${d.hint||""}</small><span class="tick">✓</span></div>` +
+      `<div class="tprev"></div>` +
+      (k === S.template ? `<div class="tbody">
+         <div class="row"><label>Primary</label>
+           <span class="swatch"><input type="color" data-c="color" value="${S.style.color}"> ${S.style.color.toUpperCase()}</span></div>
+         <div class="row"><label>Accent</label>
+           <span class="swatch"><input type="color" data-c="accent" value="${S.style.accent}"> ${S.style.accent.toUpperCase()}</span></div>
+         <div class="row"><label></label><button class="seg" style="flex:1;border:1px solid var(--line);border-radius:7px;padding:7px;background:var(--bg);color:var(--dim)" data-reset="1">Reset style</button></div>
+       </div>` : "");
+    card.querySelector(".tprev").appendChild(cardPreview(k));
+    g.appendChild(card);
+  });
+}
+
+$("#tsearch").addEventListener("input", buildGallery);
+
+$("#gallery").addEventListener("click", e => {
+  if (e.target.closest("input[type=color]")) return;
+  if (e.target.closest("[data-reset]")) { applyTemplateDefaults(S.template); push(); buildGallery(); savePresetQuiet(); return; }
+  const card = e.target.closest(".tcard"); if (!card) return;
+  if (card.dataset.t !== S.template) {
+    S.template = card.dataset.t;
+    applyTemplateDefaults(S.template);
+    push(); savePresetQuiet(); buildGallery();
+    const el = $(`.tcard[data-t="${S.template}"]`); if (el) el.scrollIntoView({block:"nearest"});
+  }
+});
+$("#gallery").addEventListener("input", e => {
+  const inp = e.target.closest("input[type=color]"); if (!inp) return;
+  S.style[inp.dataset.c] = inp.value;
+  inp.parentElement.lastChild.textContent = " " + inp.value.toUpperCase();
+  syncVals(); push(); savePresetQuiet();
+  const c = $(`.tcard[data-t="${S.template}"] .tprev`);
+  if (c) { c.innerHTML = ""; c.appendChild(cardPreview(S.template)); }
+});
+
+/* ================= transitions ================= */
+const TR_ICON = {
+  none:  `<circle cx="16" cy="16" r="11" fill="none" stroke="currentColor" stroke-width="2"/><line x1="8" y1="24" x2="24" y2="8" stroke="currentColor" stroke-width="2"/>`,
+  fade:  `<defs><radialGradient id="fg"><stop offset="0%" stop-color="currentColor"/><stop offset="100%" stop-color="currentColor" stop-opacity="0"/></radialGradient></defs><rect x="6" y="6" width="20" height="20" rx="3" fill="url(#fg)"/>`,
+  pop:   `<circle cx="16" cy="16" r="5" fill="currentColor"/><circle cx="16" cy="16" r="11" fill="none" stroke="currentColor" stroke-width="1.5" opacity=".45"/>`,
+  zoom:  `<circle cx="14" cy="14" r="8" fill="none" stroke="currentColor" stroke-width="2"/><line x1="14" y1="10" x2="14" y2="18" stroke="currentColor" stroke-width="2"/><line x1="10" y1="14" x2="18" y2="14" stroke="currentColor" stroke-width="2"/><line x1="20" y1="20" x2="27" y2="27" stroke="currentColor" stroke-width="2"/>`,
+  scale: `<circle cx="5" cy="16" r="2" fill="currentColor"/><circle cx="11" cy="16" r="2" fill="currentColor"/><circle cx="17" cy="16" r="2" fill="currentColor"/><line x1="21" y1="16" x2="27" y2="16" stroke="currentColor" stroke-width="2"/><polyline points="24,13 27,16 24,19" fill="none" stroke="currentColor" stroke-width="2"/>`,
+  "slide-left": `<polyline points="18,8 10,16 18,24" fill="none" stroke="currentColor" stroke-width="2.4"/><polyline points="26,8 18,16 26,24" fill="none" stroke="currentColor" stroke-width="2.4"/>`,
+  "slide-up":   `<polyline points="8,18 16,10 24,18" fill="none" stroke="currentColor" stroke-width="2.4"/><polyline points="8,26 16,18 24,26" fill="none" stroke="currentColor" stroke-width="2.4"/>`,
+};
+
+function buildTransitions(){
+  $("#trs").innerHTML = (CS.TRANSITIONS||[]).map(t =>
+    `<div class="tr ${t.id===S.transition.kind?'on':''}" data-v="${t.id}">
+       <div class="ic"><svg viewBox="0 0 32 32">${TR_ICON[t.id]||""}</svg></div>
+       <span>${t.label}</span>
+     </div>`).join("");
+  $("#trs").onclick = e => {
+    const el = e.target.closest(".tr"); if(!el) return;
+    S.transition.kind = el.dataset.v;
+    [...$("#trs").children].forEach(x=>x.classList.toggle("on", x===el));
+    push(); savePresetQuiet();
+  };
+  $("#trscope").onclick = e => {
+    const b = e.target.closest("button"); if(!b) return;
+    S.transition.scope = b.dataset.v; segOn("#trscope", b);
+    $("#trscopeLbl").textContent = b.dataset.v === "word" ? "Word" : "Line";
+    push(); savePresetQuiet();
+  };
+  $("#trdir").onclick = e => {
+    const b = e.target.closest("button"); if(!b) return;
+    S.transition.dir = b.dataset.v; segOn("#trdir", b); push(); savePresetQuiet();
+  };
+  segOn("#trscope", $(`#trscope [data-v="${S.transition.scope}"]`));
+  segOn("#trdir",   $(`#trdir [data-v="${S.transition.dir}"]`));
+  $("#trscopeLbl").textContent = S.transition.scope === "word" ? "Word" : "Line";
+}
+
+function applyTemplateDefaults(t){
+  const d = TD()[t]; if (!d) return;
+  S.style.font = d.font ?? S.style.font;
+  S.style.color = d.color ?? S.style.color;
+  S.style.accent = d.accent ?? S.style.accent;
+  if (d.size  != null) S.style.fontSizePct = d.size;
+  if (d.outline != null) S.style.outline = d.outline;
+  if (d.caps  != null) S.style.uppercase = d.caps;
+  if (d.words != null) S.style.maxCharsPerLine = d.words;
+  syncVals();
+}
+
+function bindControls(){
+  const map = { size:"fontSizePct", outline:"outline", posy:"posYPct", maxchars:"maxCharsPerLine" };
+  Object.keys(map).forEach(id => $("#"+id).addEventListener("input", ()=>{ S.style[map[id]] = +$("#"+id).value; syncVals(); push(); savePresetQuiet(); }));
+  ["color","accent"].forEach(id => $("#"+id).addEventListener("input", ()=>{ S.style[id]=$("#"+id).value; push(); savePresetQuiet(); buildGallery(); }));
+  $("#font").addEventListener("change", ()=>{ S.style.font=$("#font").value; push(); savePresetQuiet(); });
+  $("#caps").addEventListener("click", e=>{ const b=e.target.closest("button"); if(!b) return;
+    S.style.uppercase = b.dataset.v==="true"; segOn("#caps", b); push(); savePresetQuiet(); });
+  $("#grp").addEventListener("click", e=>{ const b=e.target.closest("button"); if(!b) return;
+    S.oneWord = S.style.oneWord = b.dataset.v==="word"; segOn("#grp", b); push(); savePresetQuiet(); });
+  $("#pos").addEventListener("click", e=>{ const b=e.target.closest("button"); if(!b) return;
+    S.style.posYPct = +b.dataset.y; segOn("#pos", b); syncVals(); push(); savePresetQuiet(); });
+  $("#bulkBtn").addEventListener("click", ()=>{
+    const w = $("#bulkWrap");
+    w.hidden = !w.hidden;
+    if (!w.hidden) { $("#bulk").value = WORDS.map(x=>x.text).join(" "); $("#bulk").focus(); }
+  });
+  $("#bulkCancel").addEventListener("click", ()=>{ $("#bulkWrap").hidden = true; });
+  $("#resync").addEventListener("click", resync);
+  $("#outh").addEventListener("click", e=>{ const b=e.target.closest("button"); if(b) segOn("#outh", b); });
+  $("#outq").addEventListener("click", e=>{ const b=e.target.closest("button"); if(b) segOn("#outq", b); });
+  $("#bulkApply").addEventListener("click", applyBulk);
+  $("#savePreset").addEventListener("click", ()=>{ savePresetQuiet(); $("#savePreset").textContent="saved ✓"; setTimeout(()=>$("#savePreset").textContent="save preset",1200); });
+  $("#export").addEventListener("click", doExport);
+}
+function segOn(sel, btn){ if(!btn) return; [...$(sel).children].forEach(x=>x.classList.toggle("on", x===btn)); }
+
+function syncVals(){
+  $("#sizeV").textContent = S.style.fontSizePct.toFixed(1);
+  $("#outlineV").textContent = S.style.outline;
+  $("#posyV").textContent = Math.round(S.style.posYPct) + "%";
+  $("#maxcharsV").textContent = S.style.maxCharsPerLine;
+  $("#size").value=S.style.fontSizePct; $("#outline").value=S.style.outline;
+  $("#posy").value=S.style.posYPct; $("#maxchars").value=S.style.maxCharsPerLine;
+  $("#color").value=S.style.color; $("#accent").value=S.style.accent; $("#font").value=S.style.font;
+  [...$("#caps").children].forEach(x=>x.classList.toggle("on",(x.dataset.v==="true")===S.style.uppercase));
+  [...$("#grp").children].forEach(x=>x.classList.toggle("on",(x.dataset.v==="word")===S.oneWord));
+  [...$("#pos").children].forEach(x=>x.classList.toggle("on", +x.dataset.y===Math.round(S.style.posYPct)));
+}
+
+function push(){ CS.update({ words: WORDS, template: S.template, style: { ...S.style }, transition: { ...S.transition } }); }
+
+function buildWords(focus, atEnd){
+  const c = $("#words"); c.innerHTML = "";
+  WORDS.forEach((w,i)=>{
+    const inp = document.createElement("input");
+    inp.value = w.text; inp.dataset.i = i;
+    inp.oninput = () => { WORDS[i].text = inp.value; push(); };
+    inp.onkeydown = (e) => {
+      const at0 = inp.selectionStart === 0 && inp.selectionEnd === 0;
+      const atN = inp.selectionStart === inp.value.length && inp.selectionEnd === inp.value.length;
+      if (e.key === "Enter") { e.preventDefault(); insertWord(i); }
+      else if (e.key === "Backspace" && inp.value === "" && WORDS.length > 1) { e.preventDefault(); deleteWord(i); }
+      else if (e.key === "ArrowLeft"  && at0 && i > 0)                { e.preventDefault(); buildWords(i - 1, true); }
+      else if (e.key === "ArrowRight" && atN && i < WORDS.length - 1) { e.preventDefault(); buildWords(i + 1); }
+    };
+    c.appendChild(inp);
+  });
+
+  const add = document.createElement("button");
+  add.className = "addw"; add.textContent = "+ word"; add.title = "Add a word at the end";
+  add.onclick = () => insertWord(WORDS.length - 1);
+  c.appendChild(add);
+
+  if (focus != null) {
+    const el = c.children[Math.max(0, Math.min(focus, WORDS.length - 1))];
+    if (el && el.tagName === "INPUT") {
+      el.focus();
+      const n = atEnd ? el.value.length : 0;
+      el.setSelectionRange(n, n);
+    }
+  }
+}
+
+// A new word has to come from somewhere on the timeline — split the word it was
+// added after, so the caption stays in sync with the audio and no gap appears.
+function insertWord(i){
+  if (!WORDS.length) { WORDS.push({ text:"", start:0, end:0.4 }); buildWords(0); push(); return; }
+  i = Math.max(0, Math.min(i, WORDS.length - 1));
+  const w = WORDS[i];
+  const mid = w.start + (w.end - w.start) / 2;
+  WORDS.splice(i + 1, 0, { text:"", start: mid, end: w.end });
+  WORDS[i] = { ...w, end: mid };
+  buildWords(i + 1); push();
+}
+
+// Deleting gives the time back to a neighbour so the line never has a hole in it.
+function deleteWord(i){
+  if (WORDS.length < 2) return;
+  const w = WORDS[i];
+  if (i > 0) WORDS[i - 1].end = w.end;
+  else WORDS[1].start = w.start;
+  WORDS.splice(i, 1);
+  buildWords(Math.max(0, i - 1), true); push();
+}
+
+// Replace every word from pasted text. The new words are spread across the same
+// stretch of video the old ones covered, each getting time in proportion to its
+// length — so a longer word sits on screen longer, and the line still ends where
+// the speech ends.
+function applyBulk(){
+  const txt = ($("#bulk").value || "").trim();
+  if (!txt) { $("#bulkWrap").hidden = true; return; }
+  const parts = txt.split(/\s+/).filter(Boolean);
+  if (!parts.length) { $("#bulkWrap").hidden = true; return; }
+
+  const t0 = WORDS.length ? WORDS[0].start : 0;
+  const t1 = WORDS.length ? WORDS[WORDS.length - 1].end : Math.max(1, parts.length * 0.35);
+  const span = Math.max(0.2, t1 - t0);
+  const weight = parts.map(w => Math.max(2, w.replace(/[^\p{L}\p{N}]/gu, "").length));
+  const total = weight.reduce((a, b) => a + b, 0);
+
+  let t = t0;
+  WORDS = parts.map((text, i) => {
+    const d = span * (weight[i] / total);
+    const w = { text, start: +t.toFixed(3), end: +(t + d).toFixed(3) };
+    t += d;
+    return w;
+  });
+
+  $("#bulkWrap").hidden = true;
+  buildWords(); push();
+
+  // the spread above is an estimate — only the aligner knows where the lips are
+  $("#aiHint").hidden = false;
+  $("#aiHint").innerHTML = 'Words replaced. Timings are estimated — hit <b>↻ re-sync</b> to lock them to the audio.';
+}
+
+// Editing or replacing words leaves the OLD timings in place, so the captions
+// drift off the lips. This sends the current text back to the aligner, which
+// matches it against the actual audio — real sync, not an estimate.
+async function resync(){
+  const b = $("#resync"); const was = b.textContent;
+  b.disabled = true; b.textContent = "syncing…";
+  $("#aiHint").hidden = false; $("#aiHint").textContent = "Matching the words back to the audio…";
+  const fd = new FormData();
+  fd.append("job", JOB);
+  fd.append("words", JSON.stringify(WORDS.map(w=>({text:w.text,start:w.start,end:w.end}))));
+  try{
+    const r = await fetch("/api/realign", { method:"POST", body:fd });
+    const d = await r.json();
+    if (!r.ok || d.error) throw new Error(d.error || "failed");
+    WORDS = d.words.map(w=>({...w}));
+    buildWords(); push();
+    $("#aiHint").textContent = "Synced. Captions now land on the audio.";
+  }catch(e){ $("#aiHint").textContent = e.message; }
+  b.disabled = false; b.textContent = was;
+}
+
+// ---- presets ----
+const PK = "capstudio.preset4";
+function savePresetQuiet(){ try{ localStorage.setItem(PK, JSON.stringify({ template:S.template, oneWord:S.oneWord, style:S.style, transition:S.transition })); }catch(e){} }
+function restorePreset(){
+  try{
+    const o = JSON.parse(localStorage.getItem(PK)||"{}");
+    if (!o.style) return false;
+    S.style = { ...S.style, ...o.style };
+    if (o.template && TPL()[o.template]) S.template = o.template;
+    if (o.transition) S.transition = { ...S.transition, ...o.transition };
+    if (o.oneWord!=null){ S.oneWord = o.oneWord; S.style.oneWord = o.oneWord; }
+    return true;
+  }catch(e){ return false; }
+}
+
+// ---- export ----
+async function doExport(){
+  $("#export").disabled = true; $("#export").textContent = "Rendering…";
+  $("#err2").textContent=""; $("#dlwrap").innerHTML=""; $("#prog").textContent = "Starting…";
+  $("#rbar").hidden = false; $("#rbar").firstElementChild.style.width = "0%";
+
+  let polling = true;
+  (async function poll(){
+    while (polling) {
+      try {
+        const p = await (await fetch("/api/render-progress/" + JOB)).json();
+        const pct = p.pct || 0;
+        $("#rbar").firstElementChild.style.width = pct + "%";
+        $("#export").textContent = `Rendering… ${pct}%`;
+        $("#prog").textContent = p.stage || "";
+      } catch(e){}
+      await new Promise(r => setTimeout(r, 700));
+    }
+  })();
+  const fd = new FormData();
+  fd.append("job", JOB);
+  fd.append("words", JSON.stringify(WORDS.map(w=>({text:w.text,start:w.start,end:w.end}))));
+  fd.append("template", S.template);
+  fd.append("font", S.style.font);
+  fd.append("size", S.style.fontSizePct);
+  fd.append("color", S.style.color);
+  fd.append("accent", S.style.accent);
+  fd.append("outline", S.style.outline);
+  fd.append("posy", S.style.posYPct);
+  fd.append("uppercase", String(S.style.uppercase));
+  fd.append("oneword", String(S.oneWord));
+  fd.append("maxchars", S.style.maxCharsPerLine);
+  fd.append("outheight", $("#outh .on")?.dataset.v || "1080");
+  fd.append("outquality", $("#outq .on")?.dataset.v || "high");
+  fd.append("trkind", S.transition.kind);
+  fd.append("trscope", S.transition.scope);
+  fd.append("trdir", S.transition.dir);
+  try{
+    const r = await fetch("/api/render",{method:"POST",body:fd});
+    const d = await r.json();
+    if (!r.ok || d.error) throw new Error(d.error || ("HTTP "+r.status));
+    $("#prog").textContent = "";
+    $("#dlwrap").innerHTML = `<a class="dl" href="${d.url}" download="captioned.mp4">⬇ download captioned.mp4</a>`;
+  }catch(e){ $("#prog").textContent=""; $("#err2").textContent = e.message; }
+  polling = false;
+  $("#rbar").hidden = true;
+  $("#export").disabled = false; $("#export").textContent = "Export MP4";
+}
+</script>
+</body>
+</html>
