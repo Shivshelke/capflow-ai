@@ -412,6 +412,10 @@
   <section class="stage" id="stage">
     <div class="upload-container" id="upload">
       <div class="upload-card">
+        <div id="netlifyBanner" hidden style="background: rgba(99, 102, 241, 0.12); border: 1px solid rgba(99, 102, 241, 0.3); border-radius: 12px; padding: 12px 16px; margin-bottom: 16px; font-size: 13px; color: #e2e8f0; display: flex; align-items: center; justify-content: space-between; gap: 12px;">
+          <span>💻 <b>CapFlow AI Local Server:</b> Open <code>http://localhost:8756</code> on your Mac to run AI transcription & video export.</span>
+          <a href="http://localhost:8756" style="background: var(--brand-grad); color: #fff; text-decoration: none; font-weight: 700; padding: 7px 14px; border-radius: 8px; font-size: 12px; white-space: nowrap;">Open Local App →</a>
+        </div>
         <label class="drop-zone" id="drop">
           <input type="file" id="file" accept="video/*">
           <div class="drop-icon">
@@ -599,6 +603,11 @@ if (location.protocol === "file:") {
        <a href="http://localhost:8756" style="display:inline-block;margin-top:20px;background:linear-gradient(135deg,#6366f1,#a855f7);color:#fff;font-weight:700;padding:12px 28px;border-radius:12px;text-decoration:none">Go to http://localhost:8756</a>
      </div>`;
   throw new Error("opened as file://");
+}
+
+if (location.hostname.includes("netlify.app")) {
+  const nb = $("#netlifyBanner");
+  if (nb) nb.hidden = false;
 }
 
 const getApiBase = () => (localStorage.getItem("capflow_api_url") || "").trim().replace(/\/+$/, "");
