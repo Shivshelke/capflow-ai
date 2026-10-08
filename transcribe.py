@@ -88,6 +88,14 @@ HI_PROMPT = ("इंस्टाग्राम, यूट्यूब, री�
              "टेम्पलेट, फॉलोअर्स, कंटेंट, क्रिएटर, सोशल मीडिया।")
 
 
+def update_progress(video_path, stage, pct):
+    try:
+        progress_file = Path(video_path).parent / "progress.json"
+        progress_file.write_text(json.dumps({"stage": stage, "pct": pct}), encoding="utf-8")
+    except Exception:
+        pass
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("video")
@@ -119,28 +127,27 @@ def main():
     import stable_whisper
 
     if script:
+        update_progress(video, "Aligning spoken script", 25)
         model = stable_whisper.load_model(args.align_model)
         result = model.align(str(video), script, language=lang or "hi")
         mode = f"align/{args.align_model}"
     else:
-        # No script: let Whisper detect the language instead of forcing Hindi, so an
-        # English clip comes out in English and a Hindi/Hinglish one comes out in
-        # Devanagari, which normalize() then romanises. Forcing "hi" mangled every
-        # English take.
-        # CPU/int8 is compatible with the widest range of follower PCs.
         tmodel = args.transcribe_model or "small"
+        update_progress(video, f"Loading Whisper AI ({tmodel})", 20)
         model = stable_whisper.load_faster_whisper(
             tmodel, device="cpu", compute_type="int8",
             cpu_threads=os.cpu_count() or 4)
+        update_progress(video, "Analyzing & Transcribing speech", 50)
         kw = dict(word_timestamps=True, regroup=False, vad_filter=True,
                   beam_size=1, condition_on_previous_text=False,
                   repetition_penalty=1.1, no_repeat_ngram_size=3,
                   initial_prompt=args.prompt or (HI_PROMPT if lang in ("hi", "") else None))
         try:
             result = model.transcribe(str(video), language=lang or None, **kw)
-        except TypeError:  # older stable-ts doesn't forward these kwargs
+        except TypeError:
             result = model.transcribe(str(video), language=lang or None,
                                       word_timestamps=True, regroup=False, vad_filter=True)
+        update_progress(video, "Formatting captions & Romanising", 85)
         detected = getattr(result, "language", None) or lang or "auto"
         args.transcribe_model = tmodel
         # Auto-detect + no explicit choice: romanise Indic output. English is unaffected.
