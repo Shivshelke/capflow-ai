@@ -371,10 +371,10 @@ if __name__ == "__main__":
     except OSError:
         # Exit 3 = "already running", not a crash. start.bat checks for it and
         # stops, instead of restarting forever into the same port conflict.
-        print(f"\n  Caption Studio is already running.")
+        print(f"\n  CapFlow AI is already running.")
         print(f"  Open  http://localhost:{PORT}  in your browser.\n")
         raise SystemExit(3)
-    print(f"\n  Caption Studio is running.")
+    print(f"\n  CapFlow AI is running.")
     print(f"  Open  http://localhost:{PORT}  in your browser.  (close this window to stop)\n")
     server = uvicorn.Server(uvicorn.Config(
         app, host="127.0.0.1", port=PORT, log_level="info", access_log=True))

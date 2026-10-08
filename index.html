@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Caption Studio</title>
+<title>CapFlow AI — Smart Caption Studio</title>
 <style>
   :root{
     color-scheme: dark;
@@ -125,8 +125,8 @@
 </head>
 <body>
 <header>
-  <div class="logo">Caption <b>Studio</b></div>
-  <div class="tag">local · premium captions · Hinglish</div>
+  <div class="logo">CapFlow <b>AI</b></div>
+  <div class="tag">AI Auto Captions · Hinglish & Multilingual · CapFlow Engine</div>
   <div class="status"><span class="dot" id="dot"></span><span id="statusText">ready</span></div>
 </header>
 
@@ -309,7 +309,7 @@ if (location.protocol === "file:") {
   document.body.innerHTML =
     `<div style="max-width:620px;margin:16vh auto;padding:0 24px;text-align:center">
        <div style="font-size:44px;margin-bottom:14px">&#128681;</div>
-       <h1 style="font-size:21px;margin-bottom:10px">Open Caption Studio from the server, not the file</h1>
+       <h1 style="font-size:21px;margin-bottom:10px">Open CapFlow AI from the server, not the file</h1>
        <p style="color:#8b93a5;line-height:1.75">
          You opened <code>index.html</code> straight off the disk, so the page has no server to talk to
          and nothing will work.
@@ -377,7 +377,7 @@ $("#go").addEventListener("click", async () => {
     // "Failed to fetch" = the connection dropped, not a server error message.
     // Almost always the server not running, or a stale tab.
     $("#err").textContent = /failed to fetch|load failed|networkerror/i.test(e.message)
-      ? `Lost the connection to Caption Studio.
+      ? `Lost the connection to CapFlow AI.
 
 1. Is the black start.bat window still open?
 2. Hard-reload this page (Ctrl+Shift+R).
