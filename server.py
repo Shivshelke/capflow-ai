@@ -30,7 +30,7 @@ if RUNTIME_PATH.is_file():
 NODE = shutil.which("node") or "node"
 ENV = {**os.environ, "PYTHONIOENCODING": "utf-8", "HF_HUB_DISABLE_SYMLINKS_WARNING": "1"}
 
-PORT = 8756
+PORT = int(os.environ.get("PORT", 8756))
 HEX12 = re.compile(r"^[0-9a-f]{12}$")
 SAFE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,80}$")
 # templates live in remotion/src/templates.js — the renderer falls back to
